@@ -1,0 +1,20 @@
+<div id="down">
+		<h3>Numbers of MPs in Parliament :&nbsp;</h3>
+		<form id="stats" method="post" action="/RiskCalc">
+			<h4>LengthOfPrice(H): <input type="text" name="S" /><br/></h4>
+			<h4>Number of DataPoints(D) <input type="text" name="R" /><br/></h4>
+            <h4>Buy or Sell (T 0 for buy 1 for sale) <input type="text" name="R"/><br/></h4>
+			<h4><input type="submit" name="RiskCalc" value="RiskCalc" />
+			<input type="submit" name='cancel' value="Cancel"
+			onclick="window.location='/'; return false;" /><br/></h4>
+		</form>
+
+
+		{% if note %}
+		<h3 style="color: #11FFFF">
+			{{ note }}
+		</h3>
+		{% endif %}
+	
+	</div>
+
