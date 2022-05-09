@@ -7,7 +7,7 @@ import yfinance as yf
 import pandas as pd
 from datetime import date, timedelta
 from pandas_datareader import data as pdr
-
+import json
 from flask import Flask, request, render_template
 
 app = Flask(__name__)
@@ -18,15 +18,22 @@ Pokemons =["Pikachu", "Charizard", "Squirtle", "Jigglypuff",
 
 COde_test = 1+3
 
-
+### AWS Setup
 os.environ['AWS_SHARED_CREDENTIALS_FILE']='./cred'
+AWS_S3_BUCKET = 's3://stonkbucket'
+
+
+
+
 URL = "https://24vn514n19.execute-api.us-east-1.amazonaws.com/default"
 #Local Test function for front end of the webpage.
 def doMonty(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy"):
+	import http.client
 	minhistory = 101
 	shots = 80000
 	var95_table = []
 	var99_table = []
+	shots=int(shots)
 	#print("buy or sell ",BuyorSellOption + "\n\n")
 	if BuyorSellOption == "Buy":
 		print("Client wants to buy")
@@ -34,8 +41,17 @@ def doMonty(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy"):
 			if data.Buy[i]==1: # if we were only interested in Buy signals
 					mean=data.Close[i-minhistory:i].pct_change(1).mean()
 					std=data.Close[i-minhistory:i].pct_change(1).std()
+
+					js= '{ "mean": "'+str(mean)+'", "std": "'+str(std)+'","shots": "'+str(shots)+'"}'
+					print(js)
+					c = http.client.HTTPSConnection("24vn514n19.execute-api.us-east-1.amazonaws.com")
+					c.request("POST", "/default/ReturnVarAvg", js)
+					response = c.getresponse()
+					See = response.read().decode('utf-8')
+
 					# generate rather larger (simulated) series with same broad characteristics 
 					simulated = [random.gauss(mean,std) for x in range(shots)]
+
 					# sort, and pick 95% and 99% losses (not distinguishing any trading position)
 					simulated.sort(reverse=True)
 					var95 = simulated[int(len(simulated)*0.95)]
@@ -43,6 +59,10 @@ def doMonty(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy"):
 					#print(var95, var99) # so you can see what is being produced
 					var95_table.append(str(round(var95,3)))
 					var99_table.append(str(round(var99,3)))
+
+
+
+
 	elif BuyorSellOption == "Sell":
 		print("Client wants to Sell")
 		for i in range(minhistory, len(data)): 
@@ -63,6 +83,14 @@ def doMonty(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy"):
 	OutputTuple = (floatListToString(var95_table),floatListToString(var99_table))
 
 	return OutputTuple
+
+def doMontyCloud(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy"):
+		v = request.form.get('key1')
+		c = http.client.HTTPSConnection("24vn514n19.execute-api.us-east-1.amazonaws.com")
+		json= '{ "key1": "'+v+'"}'
+		c.request("POST", "/default/ReturnVarAvg", json)
+		response = c.getresponse()
+		data = response.read().decode('utf-8')
 
 def floatListToString(floatList):
 	OutputString = ''
@@ -174,7 +202,6 @@ def RiskCalc():
 			data.at[data.index[i], 'Sell'] = 1
 			#print("S", data.Open[i], data.High[i], data.Low[i], data.Close[i])
 
-	data.to_csv('s3://stonkbucket')
 	if BuyOrSell == "Buy":
 		Selected_data = data.loc[data['Buy'] ==1]
 	elif BuyOrSell == "Sell":
