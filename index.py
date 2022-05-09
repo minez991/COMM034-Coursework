@@ -43,22 +43,13 @@ def doMonty(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy"):
 					std=data.Close[i-minhistory:i].pct_change(1).std()
 
 					js= '{ "mean": "'+str(mean)+'", "std": "'+str(std)+'","shots": "'+str(shots)+'"}'
-					print(js)
+					#print(js)
 					c = http.client.HTTPSConnection("24vn514n19.execute-api.us-east-1.amazonaws.com")
 					c.request("POST", "/default/ReturnVarAvg", js)
 					response = c.getresponse()
 					See = response.read().decode('utf-8')
-
-					# generate rather larger (simulated) series with same broad characteristics 
-					simulated = [random.gauss(mean,std) for x in range(shots)]
-
-					# sort, and pick 95% and 99% losses (not distinguishing any trading position)
-					simulated.sort(reverse=True)
-					var95 = simulated[int(len(simulated)*0.95)]
-					var99 = simulated[int(len(simulated)*0.99)]
-					#print(var95, var99) # so you can see what is being produced
-					var95_table.append(str(round(var95,3)))
-					var99_table.append(str(round(var99,3)))
+					
+					print(See[0])
 
 
 
