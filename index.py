@@ -18,25 +18,46 @@ Pokemons =["Pikachu", "Charizard", "Squirtle", "Jigglypuff",
 
 COde_test = 1+3
 
+
+os.environ['AWS_SHARED_CREDENTIALS_FILE']='./cred'
+URL = "https://24vn514n19.execute-api.us-east-1.amazonaws.com/default"
 #Local Test function for front end of the webpage.
-def doMonty(data,minhistory = 101,shots= 80000):
+def doMonty(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy"):
 	minhistory = 101
 	shots = 80000
 	var95_table = []
 	var99_table = []
-	for i in range(minhistory, len(data)): 
-		if data.Buy[i]==1: # if we were only interested in Buy signals
-				mean=data.Close[i-minhistory:i].pct_change(1).mean()
-				std=data.Close[i-minhistory:i].pct_change(1).std()
-				# generate rather larger (simulated) series with same broad characteristics 
-				simulated = [random.gauss(mean,std) for x in range(shots)]
-				# sort, and pick 95% and 99% losses (not distinguishing any trading position)
-				simulated.sort(reverse=True)
-				var95 = simulated[int(len(simulated)*0.95)]
-				var99 = simulated[int(len(simulated)*0.99)]
-				#print(var95, var99) # so you can see what is being produced
-				var95_table.append(str(round(var95,3)))
-				var99_table.append(str(round(var99,3)))
+	#print("buy or sell ",BuyorSellOption + "\n\n")
+	if BuyorSellOption == "Buy":
+		print("Client wants to buy")
+		for i in range(minhistory, len(data)): 
+			if data.Buy[i]==1: # if we were only interested in Buy signals
+					mean=data.Close[i-minhistory:i].pct_change(1).mean()
+					std=data.Close[i-minhistory:i].pct_change(1).std()
+					# generate rather larger (simulated) series with same broad characteristics 
+					simulated = [random.gauss(mean,std) for x in range(shots)]
+					# sort, and pick 95% and 99% losses (not distinguishing any trading position)
+					simulated.sort(reverse=True)
+					var95 = simulated[int(len(simulated)*0.95)]
+					var99 = simulated[int(len(simulated)*0.99)]
+					#print(var95, var99) # so you can see what is being produced
+					var95_table.append(str(round(var95,3)))
+					var99_table.append(str(round(var99,3)))
+	elif BuyorSellOption == "Sell":
+		print("Client wants to Sell")
+		for i in range(minhistory, len(data)): 
+			if data.Sell[i]==1: # if we were only interested in Buy signals
+					mean=data.Close[i-minhistory:i].pct_change(1).mean()
+					std=data.Close[i-minhistory:i].pct_change(1).std()
+					# generate rather larger (simulated) series with same broad characteristics 
+					simulated = [random.gauss(mean,std) for x in range(shots)]
+					# sort, and pick 95% and 99% losses (not distinguishing any trading position)
+					simulated.sort(reverse=True)
+					var95 = simulated[int(len(simulated)*0.95)]
+					var99 = simulated[int(len(simulated)*0.99)]
+					#print(var95, var99) # so you can see what is being produced
+					var95_table.append(str(round(var95,3)))
+					var99_table.append(str(round(var99,3)))
 	
 	print(floatListToString(var95_table))
 	OutputTuple = (floatListToString(var95_table),floatListToString(var99_table))
@@ -94,11 +115,20 @@ def table():
 def risk():
 
 	print("data Loaded")
-	
-	return render_template('risk.htm', data1 = data1)
+	Yesno = {}
+	return render_template('risk.htm')
 
 @app.route('/RiskCalc', methods=['POST'])
 def RiskCalc():
+
+	LengthOfPriceHistory = request.form.get('H')
+	NumberofDatapoints = request.form.get('D')
+	BuyOrSell = request.form.get('T')
+	print(str(BuyOrSell))
+	if LengthOfPriceHistory == '' or NumberofDatapoints == '' or BuyOrSell == '':
+		return doRender('risk.htm',
+		{'note': 'Please Check input cannot be empty'})
+
 	# Code from the python script provided in coursework document, get data here
 	yf.pdr_override()
 
@@ -143,12 +173,14 @@ def RiskCalc():
 		if data.High[i] > data.Open[i] and data.High[i]-data.Open[i] > realbody and data.Open[i] > data.Close[i] and data.Close[i] >= data.Low[i] and data.Close[i] <= data.Low[i]+bodyprojection:
 			data.at[data.index[i], 'Sell'] = 1
 			#print("S", data.Open[i], data.High[i], data.Low[i], data.Close[i])
-	data.to_csv('static/data.csv')
 
-
+	data.to_csv('s3://stonkbucket')
+	if BuyOrSell == "Buy":
+		Selected_data = data.loc[data['Buy'] ==1]
+	elif BuyOrSell == "Sell":
+		Selected_data = data.loc[data['Sell'] ==1]
 	print("Riskcalc")
-	data = pd.read_csv('static/data.csv')
-	OUTPUT = doMonty(data,101,100)
+	OUTPUT = doMonty(data,LengthOfPriceHistory,NumberofDatapoints,BuyOrSell)
 	#print(OUTPUT[0])
 	data1 = OUTPUT[0]
 	data2 = OUTPUT[1]
@@ -166,11 +198,12 @@ def RandomHandler():
 	import http.client
 	if request.method == 'POST':
 		v = request.form.get('key1')
-		c = http.client.HTTPSConnection("cms03i6rod.execute-api.us-east-1.amazonaws.com")
+		c = http.client.HTTPSConnection("24vn514n19.execute-api.us-east-1.amazonaws.com")
 		json= '{ "key1": "'+v+'"}'
-		c.request("POST", "/default/function_one", json)
+		c.request("POST", "/default/ReturnVarAvg", json)
 		response = c.getresponse()
 		data = response.read().decode('utf-8')
+		print(data)
 		return doRender( 'index.htm',
 			{'note': data})
 		

@@ -4,4 +4,6 @@ boto3==1.10.50
 pandas
 yfinance
 pandas_datareader
-
+jinja2==3.0.3
+werkzeug==2.0.3
+itsdangerous==2.0.1
