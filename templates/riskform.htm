@@ -5,16 +5,25 @@
 			<h4>Number of DataPoints(D) <input type="text" name="D" /><br/></h4>
 
 
-            <h4>Buy or Sell (T 0 for buy 1 for sale) <select name="T">
+            <h4>Buy or Sell<select name="T">
 														<option value="Buy">Buy</option>
 														<option value="Sell">Sell</option>
 														</select>
+	        
+
+            <h4>Online / Offline Mode <select name="ONOFF">
+				<option value="ONLINE">Online</option>
+				<option value="OFFLINE">Offline</option>
+				</select>
+
+
 
 			<h4><input type="submit" name="RiskCalc" value="RiskCalc" />
 			<input type="submit" name='cancel' value="Cancel"
 			onclick="window.location='/'; return false;" /><br/></h4>
 		</form>
 
+		
 
 		{% if note %}
 		<h3 style="color: #11FFFF">

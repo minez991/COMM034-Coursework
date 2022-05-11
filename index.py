@@ -1,4 +1,5 @@
 from crypt import methods
+from doctest import OutputChecker
 import os
 import logging
 import math
@@ -9,79 +10,99 @@ from datetime import date, timedelta
 from pandas_datareader import data as pdr
 import json
 from flask import Flask, request, render_template
+import time
 
 app = Flask(__name__)
+#####################################################
+## Not the most pythonic method, but debug toggles ##
+#####################################################
+
+# Toggle True if uses local data store in static, this is used for front end debug, to reduce time and computation cost
+
 
 #Pikachu list
 Pokemons =["Pikachu", "Charizard", "Squirtle", "Jigglypuff", 
            "Bulbasaur", "Gengar", "Charmander", "Mew", "Lugia"]
 
-COde_test = 1+3
+os.environ['AWS_SHARED_CREDENTIALS_FILE']='./static/cred'
+import boto3
+
 
 ### AWS Setup
-os.environ['AWS_SHARED_CREDENTIALS_FILE']='./cred'
 AWS_S3_BUCKET = 's3://stonkbucket'
 
 
 
 
-URL = "https://24vn514n19.execute-api.us-east-1.amazonaws.com/default"
 #Local Test function for front end of the webpage.
-def doMonty(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy"):
+def doMonty(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy",ONLINE_MODE = False):
 	import http.client
 	minhistory = 101
 	shots = 80000
 	var95_table = []
 	var99_table = []
+	#ONLINE_MODE = False
+
 	shots=int(shots)
 	#print("buy or sell ",BuyorSellOption + "\n\n")
+	mean = []
+	std = []
 	if BuyorSellOption == "Buy":
 		print("Client wants to buy")
+		#calculate all data to find the mean and std of data
 		for i in range(minhistory, len(data)): 
 			if data.Buy[i]==1: # if we were only interested in Buy signals
-					mean=data.Close[i-minhistory:i].pct_change(1).mean()
-					std=data.Close[i-minhistory:i].pct_change(1).std()
-
-					js= '{ "mean": "'+str(mean)+'", "std": "'+str(std)+'","shots": "'+str(shots)+'"}'
-					#print(js)
-					c = http.client.HTTPSConnection("24vn514n19.execute-api.us-east-1.amazonaws.com")
-					c.request("POST", "/default/ReturnVarAvg", js)
-					response = c.getresponse()
-					See = response.read().decode('utf-8')
-					
-					print(See[0])
-
-
-
+					mean.append(data.Close[i-minhistory:i].pct_change(1).mean())
+					std.append(data.Close[i-minhistory:i].pct_change(1).std())
 
 	elif BuyorSellOption == "Sell":
 		print("Client wants to Sell")
 		for i in range(minhistory, len(data)): 
 			if data.Sell[i]==1: # if we were only interested in Buy signals
-					mean=data.Close[i-minhistory:i].pct_change(1).mean()
-					std=data.Close[i-minhistory:i].pct_change(1).std()
-					# generate rather larger (simulated) series with same broad characteristics 
-					simulated = [random.gauss(mean,std) for x in range(shots)]
-					# sort, and pick 95% and 99% losses (not distinguishing any trading position)
-					simulated.sort(reverse=True)
-					var95 = simulated[int(len(simulated)*0.95)]
-					var99 = simulated[int(len(simulated)*0.99)]
-					#print(var95, var99) # so you can see what is being produced
-					var95_table.append(str(round(var95,3)))
-					var99_table.append(str(round(var99,3)))
-	
-	print(floatListToString(var95_table))
-	OutputTuple = (floatListToString(var95_table),floatListToString(var99_table))
+					mean.append(data.Close[i-minhistory:i].pct_change(1).mean())
+					std.append(data.Close[i-minhistory:i].pct_change(1).std())
+	js = {
+		'mean' : mean,
+		'std' : std,
+		'shots' : shots
+	}
+
+
+	js = json.dumps(js)
+	#If we are not using local data
+	if ONLINE_MODE:
+		t = time.time()
+		client = boto3.client('lambda', region_name='us-east-1')
+		response = client.invoke(
+		# use your own ARN below
+		FunctionName='arn:aws:lambda:us-east-1:564060094405:function:ReturnVarAvg',
+		InvocationType='RequestResponse',
+		LogType='None',
+		Payload=js
+		)
+		# Ways of working with the response
+		#print(response)
+		#print(response['Payload'])
+		r=response['Payload'].read()
+		res_json = json.loads(r) # sometimes, it is necessary to use .decode("utf-8"))
+		
+		#with open('data_out.json', 'w') as f:
+		#	json.dump(res_json, f)
+		elapsed = time.time() - t
+		print('Elapsed: %s' , elapsed)
+
+	else:
+		f = open('data_out.json')
+		res_json = json.load(f)
+	print(type(res_json['var95']))
+
+	OutputTuple = (floatListToString(res_json['var95']),floatListToString(res_json['var99']))
+
+	#print(floatListToString(var95_table))
+	#OutputTuple = (floatListToString(var95_table),floatListToString(var99_table))
+
 
 	return OutputTuple
-
-def doMontyCloud(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy"):
-		v = request.form.get('key1')
-		c = http.client.HTTPSConnection("24vn514n19.execute-api.us-east-1.amazonaws.com")
-		json= '{ "key1": "'+v+'"}'
-		c.request("POST", "/default/ReturnVarAvg", json)
-		response = c.getresponse()
-		data = response.read().decode('utf-8')
 
 def floatListToString(floatList):
 	OutputString = ''
@@ -132,7 +153,7 @@ def table():
 
 @app.route('/risk')
 def risk():
-
+	print()
 	print("data Loaded")
 	Yesno = {}
 	return render_template('risk.htm')
@@ -143,6 +164,8 @@ def RiskCalc():
 	LengthOfPriceHistory = request.form.get('H')
 	NumberofDatapoints = request.form.get('D')
 	BuyOrSell = request.form.get('T')
+	ONLINE_MODE = request.form.get('ONOFF')
+
 	print(str(BuyOrSell))
 	if LengthOfPriceHistory == '' or NumberofDatapoints == '' or BuyOrSell == '':
 		return doRender('risk.htm',
@@ -198,14 +221,22 @@ def RiskCalc():
 	elif BuyOrSell == "Sell":
 		Selected_data = data.loc[data['Sell'] ==1]
 	print("Riskcalc")
-	OUTPUT = doMonty(data,LengthOfPriceHistory,NumberofDatapoints,BuyOrSell)
+	if ONLINE_MODE == "ONLINE":
+		print("ONLINE MODE")
+		ONLINE_FLAG = True
+	elif ONLINE_MODE == "OFFLINE":
+		print("OFFLINE MODE")
+		ONLINE_FLAG=False
+
+	OUTPUT = doMonty(data,LengthOfPriceHistory,NumberofDatapoints,BuyOrSell,ONLINE_FLAG)
 	#print(OUTPUT[0])
 	data1 = OUTPUT[0]
 	data2 = OUTPUT[1]
 	#data1 = "-0.054,-0.054,-0.052,-0.047"
 
+	print(ONLINE_MODE)
 	return doRender('risk.htm',
-		{'note': 'Please specify a number for each group!',
+		{'note': ONLINE_MODE+" MODE",
 		 'dataVar95': data1,
 		 'dataVar99' : data2,
 		 'Charts' : 'true'
