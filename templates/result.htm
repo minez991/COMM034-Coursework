@@ -1,0 +1,30 @@
+{% extends "_base.htm" %}
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.6.2/jquery.min.js"></script>
+{% block title %}
+	Risk Page
+{% endblock %}
+
+{% block pageblock %}
+
+	<div id="up">
+		<h1>Result Page. <br/><br/></h1>
+		<h3><a href="index.htm"> Home page  </a>.</h3>
+		<h3><a href="risk"> Risk page  </a>.</h3>
+	</div>
+
+	{% include 'riskChart.htm' %}
+	Hello 
+	{% for num, prediction, prob in my_list %}
+    <tr>
+        <td>{{ num }}</td>
+        <td>{{ prediction }}</td>
+        <td>{{ prob }}</td>
+    </tr>
+	<tr>
+        <td>{{ num }}</td>
+        <td>{{ prediction }}</td>
+        <td>{{ prob }}</td>
+    </tr>
+{% endfor %}
+	
+{% endblock %}

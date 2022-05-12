@@ -11,6 +11,7 @@ from pandas_datareader import data as pdr
 import json
 from flask import Flask, request, render_template
 import time
+from datetime import datetime
 
 app = Flask(__name__)
 #####################################################
@@ -28,17 +29,66 @@ os.environ['AWS_SHARED_CREDENTIALS_FILE']='./static/cred'
 import boto3
 
 
+
 ### AWS Setup
 AWS_S3_BUCKET = 's3://stonkbucket'
 
+def update_data():
+
+	# Code from the python script provided in coursework document, get data here
+	yf.pdr_override()
 
 
+	# Get stock data from Yahoo Finance – here, asking for about 10 years of Gamestop
+	# which had an interesting time in 2021: https://en.wikipedia.org/wiki/GameStop_short_squeeze 
+	today = date.today()
+	decadeAgo = today - timedelta(days=3652)
+
+	#Date| Open| High| Low | Close | adj close |Volumn | 
+	global data 
+	data = pdr.get_data_yahoo('TSLA', start=decadeAgo, end=today)
+	# Other symbols: TSLA – Tesla, AMZN – Amazon, NFLX – Netflix, BP.L – BP 
+
+	#print(data.head)
+	# Add two columns to this to allow for Buy and Sell signals
+	# fill with zero
+	data['Buy']=0
+	data['Sell']=0
+
+	# Find the 4 different types of signals – uncomment print statements
+	# if you want to look at the data these pick out in some another way
+	for i in range(len(data)): 
+		# Hammer
+		realbody=math.fabs(data.Open[i]-data.Close[i])
+		bodyprojection=0.3*math.fabs(data.Close[i]-data.Open[i])
+
+		if data.High[i] >= data.Close[i] and data.High[i]-bodyprojection <= data.Close[i] and data.Close[i] > data.Open[i] and data.Open[i] > data.Low[i] and data.Open[i]-data.Low[i] > realbody:
+			data.at[data.index[i], 'Buy'] = 1
+			#print("H", data.Open[i], data.High[i], data.Low[i], data.Close[i])   
+
+		# Inverted Hammer
+		if data.High[i] > data.Close[i] and data.High[i]-data.Close[i] > realbody and data.Close[i] > data.Open[i] and data.Open[i] >= data.Low[i] and data.Open[i] <= data.Low[i]+bodyprojection:
+			data.at[data.index[i], 'Buy'] = 1
+			#print("I", data.Open[i], data.High[i], data.Low[i], data.Close[i])
+
+		# Hanging Man
+		if data.High[i] >= data.Open[i] and data.High[i]-bodyprojection <= data.Open[i] and data.Open[i] > data.Close[i] and data.Close[i] > data.Low[i] and data.Close[i]-data.Low[i] > realbody:
+			data.at[data.index[i], 'Sell'] = 1
+			#print("M", data.Open[i], data.High[i], data.Low[i], data.Close[i])
+
+		# Shooting Star
+		if data.High[i] > data.Open[i] and data.High[i]-data.Open[i] > realbody and data.Open[i] > data.Close[i] and data.Close[i] >= data.Low[i] and data.Close[i] <= data.Low[i]+bodyprojection:
+			data.at[data.index[i], 'Sell'] = 1
+			#print("S", data.Open[i], data.High[i], data.Low[i], data.Close[i])
+
+def Average(lst):
+    return sum(lst) / len(lst)
 
 #Local Test function for front end of the webpage.
 def doMonty(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy",ONLINE_MODE = False):
 	import http.client
 	minhistory = 101
-	shots = 80000
+	shots =80
 	var95_table = []
 	var99_table = []
 	#ONLINE_MODE = False
@@ -47,6 +97,8 @@ def doMonty(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy",ONLINE_MODE
 	#print("buy or sell ",BuyorSellOption + "\n\n")
 	mean = []
 	std = []
+	dates = []
+	print(data.iloc[:,0])
 	if BuyorSellOption == "Buy":
 		print("Client wants to buy")
 		#calculate all data to find the mean and std of data
@@ -54,6 +106,9 @@ def doMonty(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy",ONLINE_MODE
 			if data.Buy[i]==1: # if we were only interested in Buy signals
 					mean.append(data.Close[i-minhistory:i].pct_change(1).mean())
 					std.append(data.Close[i-minhistory:i].pct_change(1).std())
+					date = data.index[i].date()
+					date = date.strftime("%Y-%m-%d")
+					dates.append(date)
 
 	elif BuyorSellOption == "Sell":
 		print("Client wants to Sell")
@@ -61,10 +116,16 @@ def doMonty(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy",ONLINE_MODE
 			if data.Sell[i]==1: # if we were only interested in Buy signals
 					mean.append(data.Close[i-minhistory:i].pct_change(1).mean())
 					std.append(data.Close[i-minhistory:i].pct_change(1).std())
+					date = data.index[i].date()
+					date = date.strftime("%Y-%m-%d")
+					dates.append(date)
+
+					
 	js = {
 		'mean' : mean,
 		'std' : std,
-		'shots' : shots
+		'shots' : shots,
+		'poke' : "no"
 	}
 
 
@@ -85,7 +146,7 @@ def doMonty(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy",ONLINE_MODE
 		#print(response['Payload'])
 		r=response['Payload'].read()
 		res_json = json.loads(r) # sometimes, it is necessary to use .decode("utf-8"))
-		
+		print(res_json)
 		#with open('data_out.json', 'w') as f:
 		#	json.dump(res_json, f)
 		elapsed = time.time() - t
@@ -94,9 +155,23 @@ def doMonty(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy",ONLINE_MODE
 	else:
 		f = open('data_out.json')
 		res_json = json.load(f)
-	print(type(res_json['var95']))
 
-	OutputTuple = (floatListToString(res_json['var95']),floatListToString(res_json['var99']))
+	#print(type(res_json['var95'][1]))
+	print(res_json)
+
+	avg95 = Average(res_json['var95'])
+	avg99 = Average(res_json['var99'])
+	avg95 = [avg95] * len(res_json['var95'])
+	avg99 = [avg99] * len(res_json['var95'])
+
+	OutputTuple = {
+		'var95' : floatListToString(res_json['var95']),
+		'var99' : floatListToString(res_json['var99']),
+		'dates' : dates,
+		'avg95' : floatListToString(avg95),
+		'avg99' : floatListToString(avg99)
+		}
+
 
 	#print(floatListToString(var95_table))
 	#OutputTuple = (floatListToString(var95_table),floatListToString(var99_table))
@@ -112,7 +187,8 @@ def floatListToString(floatList):
 	return OutputString
 #Abstraction of code to create amazon_scaleable instances
 
-
+def create_resources():
+	printf("HW")
 # various Flask explanations available at:  https://flask.palletsprojects.com/en/1.1.x/quickstart/
 
 def doRender(tname, values={}):
@@ -160,7 +236,7 @@ def risk():
 
 @app.route('/RiskCalc', methods=['POST'])
 def RiskCalc():
-
+	update_data()
 	LengthOfPriceHistory = request.form.get('H')
 	NumberofDatapoints = request.form.get('D')
 	BuyOrSell = request.form.get('T')
@@ -170,51 +246,6 @@ def RiskCalc():
 	if LengthOfPriceHistory == '' or NumberofDatapoints == '' or BuyOrSell == '':
 		return doRender('risk.htm',
 		{'note': 'Please Check input cannot be empty'})
-
-	# Code from the python script provided in coursework document, get data here
-	yf.pdr_override()
-
-
-	# Get stock data from Yahoo Finance – here, asking for about 10 years of Gamestop
-	# which had an interesting time in 2021: https://en.wikipedia.org/wiki/GameStop_short_squeeze 
-	today = date.today()
-	decadeAgo = today - timedelta(days=3652)
-
-	#Date| Open| High| Low | Close | adj close |Volumn | 
-	data = pdr.get_data_yahoo('TSLA', start=decadeAgo, end=today)
-	# Other symbols: TSLA – Tesla, AMZN – Amazon, NFLX – Netflix, BP.L – BP 
-
-	#print(data.head)
-	# Add two columns to this to allow for Buy and Sell signals
-	# fill with zero
-	data['Buy']=0
-	data['Sell']=0
-
-	# Find the 4 different types of signals – uncomment print statements
-	# if you want to look at the data these pick out in some another way
-	for i in range(len(data)): 
-		# Hammer
-		realbody=math.fabs(data.Open[i]-data.Close[i])
-		bodyprojection=0.3*math.fabs(data.Close[i]-data.Open[i])
-
-		if data.High[i] >= data.Close[i] and data.High[i]-bodyprojection <= data.Close[i] and data.Close[i] > data.Open[i] and data.Open[i] > data.Low[i] and data.Open[i]-data.Low[i] > realbody:
-			data.at[data.index[i], 'Buy'] = 1
-			#print("H", data.Open[i], data.High[i], data.Low[i], data.Close[i])   
-
-		# Inverted Hammer
-		if data.High[i] > data.Close[i] and data.High[i]-data.Close[i] > realbody and data.Close[i] > data.Open[i] and data.Open[i] >= data.Low[i] and data.Open[i] <= data.Low[i]+bodyprojection:
-			data.at[data.index[i], 'Buy'] = 1
-			#print("I", data.Open[i], data.High[i], data.Low[i], data.Close[i])
-
-		# Hanging Man
-		if data.High[i] >= data.Open[i] and data.High[i]-bodyprojection <= data.Open[i] and data.Open[i] > data.Close[i] and data.Close[i] > data.Low[i] and data.Close[i]-data.Low[i] > realbody:
-			data.at[data.index[i], 'Sell'] = 1
-			#print("M", data.Open[i], data.High[i], data.Low[i], data.Close[i])
-
-		# Shooting Star
-		if data.High[i] > data.Open[i] and data.High[i]-data.Open[i] > realbody and data.Open[i] > data.Close[i] and data.Close[i] >= data.Low[i] and data.Close[i] <= data.Low[i]+bodyprojection:
-			data.at[data.index[i], 'Sell'] = 1
-			#print("S", data.Open[i], data.High[i], data.Low[i], data.Close[i])
 
 	if BuyOrSell == "Buy":
 		Selected_data = data.loc[data['Buy'] ==1]
@@ -230,16 +261,26 @@ def RiskCalc():
 
 	OUTPUT = doMonty(data,LengthOfPriceHistory,NumberofDatapoints,BuyOrSell,ONLINE_FLAG)
 	#print(OUTPUT[0])
-	data1 = OUTPUT[0]
-	data2 = OUTPUT[1]
+	data1 = OUTPUT['var95']
+	data2 = OUTPUT['var99']
+	dates = OUTPUT['dates']
+	dates = ' | '.join(dates)
+	avg95 = OUTPUT['avg95']
+	avg99 = OUTPUT['avg99']
+	#print(avg99)
 	#data1 = "-0.054,-0.054,-0.052,-0.047"
-
+	#print(dates)
+	my_list = [[1,2,3],[1,2,3],[1,2,3],[1,2,3],[1,2,3]]
 	print(ONLINE_MODE)
-	return doRender('risk.htm',
+	return doRender('result.htm',
 		{'note': ONLINE_MODE+" MODE",
 		 'dataVar95': data1,
 		 'dataVar99' : data2,
-		 'Charts' : 'true'
+		 'Charts' : 'true',
+		 'Dates' : dates,
+		 'avg95' : avg95,
+		 'avg99' : avg99,
+		 'my_list' : my_list
 		})
 
 @app.route('/random', methods=['POST'])
@@ -251,8 +292,8 @@ def RandomHandler():
 		json= '{ "key1": "'+v+'"}'
 		c.request("POST", "/default/ReturnVarAvg", json)
 		response = c.getresponse()
-		data = response.read().decode('utf-8')
-		print(data)
+		decode_data = response.read().decode('utf-8')
+		print(decode_data)
 		return doRender( 'index.htm',
 			{'note': data})
 		
@@ -283,7 +324,7 @@ def s3listbuckets():
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def mainPage(path):
-
+	update_data()
 
 	return doRender(path)
 @app.errorhandler(500)
