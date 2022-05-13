@@ -1,9 +1,12 @@
+from concurrent.futures import Executor, ThreadPoolExecutor
 from crypt import methods
 from doctest import OutputChecker
+from importlib import resources
 import os
 import logging
 import math
 import random
+from threading import Thread
 import yfinance as yf
 import pandas as pd
 from datetime import date, timedelta
@@ -14,27 +17,32 @@ import time
 from datetime import datetime
 
 app = Flask(__name__)
-#####################################################
-## Not the most pythonic method, but debug toggles ##
-#####################################################
 
-# Toggle True if uses local data store in static, this is used for front end debug, to reduce time and computation cost
+#TODO  LIST
+#PARALLELisation of lambda
+#EC2 Creation maybe use lamb server? 
+#S3
+#Result Page and audit page
 
+# Some Default value for global variable
+Resource = 4
+Scale_choice = "Lambda"
 
-#Pikachu list
-Pokemons =["Pikachu", "Charizard", "Squirtle", "Jigglypuff", 
-           "Bulbasaur", "Gengar", "Charmander", "Mew", "Lugia"]
 
 os.environ['AWS_SHARED_CREDENTIALS_FILE']='./static/cred'
 import boto3
 
-
+Lambda_client = boto3.client('lambda', region_name='us-east-1')
 
 ### AWS Setup
 AWS_S3_BUCKET = 's3://stonkbucket'
 
-def update_data():
+def random_stop():
+	Randomtime = random.randrange(0,20) / 200
+	time.sleep(Randomtime)
 
+def update_data():
+	print("Data Updated")
 	# Code from the python script provided in coursework document, get data here
 	yf.pdr_override()
 
@@ -79,26 +87,77 @@ def update_data():
 		# Shooting Star
 		if data.High[i] > data.Open[i] and data.High[i]-data.Open[i] > realbody and data.Open[i] > data.Close[i] and data.Close[i] >= data.Low[i] and data.Close[i] <= data.Low[i]+bodyprojection:
 			data.at[data.index[i], 'Sell'] = 1
-			#print("S", data.Open[i], data.High[i], data.Low[i], data.Close[i])
+
+def PingLambda(id):
+	#Quick helper to make the contrainer warmed up
+	random_stop()
+	js = {
+	'mean' : 0,
+	'std' : 0,
+	'shots' : 0,
+	'poke' : "beep"
+	}
+	js = json.dumps(js)
+
+	t = time.time()
+	
+	response = Lambda_client.invoke(
+	# use your own ARN below
+	FunctionName='arn:aws:lambda:us-east-1:564060094405:function:ReturnVarAvg',
+	InvocationType='RequestResponse',
+	LogType='None',
+	Payload=js
+	)
+	# Ways of working with the response
+	r=response['Payload'].read()
+	res_json = json.loads(r) # sometimes, it is necessary to use .decode("utf-8"))
+	elapsed = time.time() - t
+	#if res_json == "bop":
+		#print("\n Pinged \n")
+	#print('Elapsed: %s' , elapsed)
+	return str(id) +" : " +res_json
+
+def floatListToString(floatList):
+	OutputString = ''
+	for num in floatList[:-1]:
+		OutputString = OutputString + str(num) + ','
+	OutputString = OutputString + str(floatList[-1])
+	return OutputString
 
 def Average(lst):
     return sum(lst) / len(lst)
 
+def doRender(tname, values={}):
+	if not (os.path.isfile( os.path.join(os.getcwd(), 'templates/'+tname)) ): #No such file
+		print("No File")
+		return render_template('index.htm')
+	return render_template(tname, **values)
+
+def AskLambda(id,js):
+	print("Lambda #"+str(id)+": Making enquires")
+	response = Lambda_client.invoke(
+	FunctionName='arn:aws:lambda:us-east-1:564060094405:function:ReturnVarAvg',
+	InvocationType='RequestResponse',
+	LogType='None',
+	Payload=js
+	)
+	# Ways of working with the response
+	r=response['Payload'].read()
+	res_json = json.loads(r) # sometimes, it is necessary to use .decode("utf-8"))
+	return res_json
+	
+
 #Local Test function for front end of the webpage.
-def doMonty(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy",ONLINE_MODE = False):
+def doMonty_lambda(data,minhistory = 101,shots= 80,BuyorSellOption="Buy",ONLINE_MODE = False):
 	import http.client
 	minhistory = 101
 	shots =80
-	var95_table = []
-	var99_table = []
-	#ONLINE_MODE = False
 
 	shots=int(shots)
-	#print("buy or sell ",BuyorSellOption + "\n\n")
 	mean = []
 	std = []
 	dates = []
-	print(data.iloc[:,0])
+	#Select Buy or sell table
 	if BuyorSellOption == "Buy":
 		print("Client wants to buy")
 		#calculate all data to find the mean and std of data
@@ -120,106 +179,114 @@ def doMonty(data,minhistory = 101,shots= 80000,BuyorSellOption="Buy",ONLINE_MODE
 					date = date.strftime("%Y-%m-%d")
 					dates.append(date)
 
-					
-	js = {
-		'mean' : mean,
-		'std' : std,
-		'shots' : shots,
-		'poke' : "no"
-	}
+	
+	elapsed = 0
 
-
-	js = json.dumps(js)
-	#If we are not using local data
+	#Query AWS function for result
 	if ONLINE_MODE:
+			#AWS package to be send			
+		js = {
+			'mean' : mean,
+			'std' : std,
+			'shots' : shots,
+			'poke' : "no"
+		}
+		js = json.dumps(js)
+
 		t = time.time()
-		client = boto3.client('lambda', region_name='us-east-1')
-		response = client.invoke(
-		# use your own ARN below
-		FunctionName='arn:aws:lambda:us-east-1:564060094405:function:ReturnVarAvg',
-		InvocationType='RequestResponse',
-		LogType='None',
-		Payload=js
-		)
-		# Ways of working with the response
-		#print(response)
-		#print(response['Payload'])
-		r=response['Payload'].read()
-		res_json = json.loads(r) # sometimes, it is necessary to use .decode("utf-8"))
-		print(res_json)
-		#with open('data_out.json', 'w') as f:
-		#	json.dump(res_json, f)
+		
+		
+		global Resource
+		js = [js] * Resource
+		runs=[value for value in range(Resource)]
+
+		print("Parallelising for " + str(Resource) + " Resources")
+		with ThreadPoolExecutor(max_workers=Resource) as executor:
+			res_json_table =  executor.map(AskLambda,runs,js)
+
+		Var95_Buffer = []
+		Var99_Buffer = []
+
+		for result in res_json_table:
+			Var95_Buffer.append(result['var95'])
+			Var99_Buffer.append(result['var99'])
+
+		var95 = pd.DataFrame(Var95_Buffer)
+		var95_mean = var95.mean(axis=0)
+		var99 = pd.DataFrame(Var99_Buffer)
+		var99_mean = var99.mean(axis=0)
+		print(var95_mean.tolist())
+
+		res_json ={
+			'var95' : var95_mean.tolist(),
+			'var99' : var99_mean.tolist()
+		}
+
 		elapsed = time.time() - t
-		print('Elapsed: %s' , elapsed)
+		print('Elapsed: ' , elapsed)
 
 	else:
+		#Using demo data
 		f = open('data_out.json')
 		res_json = json.load(f)
-
-	#print(type(res_json['var95'][1]))
-	print(res_json)
 
 	avg95 = Average(res_json['var95'])
 	avg99 = Average(res_json['var99'])
 	avg95 = [avg95] * len(res_json['var95'])
 	avg99 = [avg99] * len(res_json['var95'])
+	
+	#Formatting result table
+	resultlist= []
+	for i in range(0,len(avg95)):	
+		resultlist.append( [ dates[i],round(res_json['var95'][i],4), round(res_json['var99'][i],3) ])
 
 	OutputTuple = {
 		'var95' : floatListToString(res_json['var95']),
 		'var99' : floatListToString(res_json['var99']),
 		'dates' : dates,
 		'avg95' : floatListToString(avg95),
-		'avg99' : floatListToString(avg99)
+		'avg99' : floatListToString(avg99),
+		'resultlist' : resultlist,
+		'RequestTime' : elapsed
 		}
-
-
-	#print(floatListToString(var95_table))
-	#OutputTuple = (floatListToString(var95_table),floatListToString(var99_table))
-
 
 	return OutputTuple
 
-def floatListToString(floatList):
-	OutputString = ''
-	for num in floatList[:-1]:
-		OutputString = OutputString + str(num) + ','
-	OutputString = OutputString + str(floatList[-1])
-	return OutputString
+def create_EC2_resources(id):
+	return "EC2 Creation ID: " + str(id)
+
+
 #Abstraction of code to create amazon_scaleable instances
 
-def create_resources():
-	printf("HW")
-# various Flask explanations available at:  https://flask.palletsprojects.com/en/1.1.x/quickstart/
-
-def doRender(tname, values={}):
-	if not (os.path.isfile( os.path.join(os.getcwd(), 'templates/'+tname)) ): #No such file
-		print("No File")
-		return render_template('index.htm')
-	return render_template(tname, **values)
-
-@app.route('/hello')
-# Keep a Hello World message to show that at least something is working
-def hello():
-    return 'Hello World!'
-
-
 # Defines a POST supporting calculate route
-@app.route('/calculate', methods=['POST'])
+@app.route('/warmup', methods=['POST'])
 def calculateHandler():
 	if request.method == 'POST':
 		print("Calculate Post")
-		l = request.form.get('Scale')
-		print(l)
-		c = request.form.get('Resource')
-		if l == '' or c == '':
-			return doRender('index.htm',
-					{'note': 'Please specify a number for each group!'})
-		else:
-			total = float(l) + float(c)
-			lP = int(float(l)/total*100)
-			cP = int(float(c)/total*100)
-			return doRender('chart.htm', {'data': str(lP) + ',' + str(cP)})
-	return 'Should not ever get here'
+		global Scale_choice
+		Scale_choice = request.form.get('Scale')
+		global Resource
+		Resource = int(request.form.get('Resource'))
+
+		runs=[value for value in range(0,int(Resource))] # Create 
+		print(runs)
+		if Scale_choice == "Lambda":
+			with ThreadPoolExecutor(max_workers=int(Resource)) as executor:
+				init_result = executor.map(PingLambda,runs)
+
+			for result in init_result:
+				print(result)
+
+		elif Scale_choice == "EC2":
+
+			with ThreadPoolExecutor(max_workers=Resource) as executor:
+				init_result = executor.map(create_EC2_resources,runs)
+			#TODO EC2 Creation
+			for result in init_result:
+				print(result)
+
+		return doRender('risk.htm')
+
 
 
 @app.route('/table')
@@ -258,19 +325,18 @@ def RiskCalc():
 	elif ONLINE_MODE == "OFFLINE":
 		print("OFFLINE MODE")
 		ONLINE_FLAG=False
+	
 
-	OUTPUT = doMonty(data,LengthOfPriceHistory,NumberofDatapoints,BuyOrSell,ONLINE_FLAG)
-	#print(OUTPUT[0])
+	OUTPUT = doMonty_lambda(data,LengthOfPriceHistory,NumberofDatapoints,BuyOrSell,ONLINE_FLAG)
+	
 	data1 = OUTPUT['var95']
 	data2 = OUTPUT['var99']
 	dates = OUTPUT['dates']
 	dates = ' | '.join(dates)
 	avg95 = OUTPUT['avg95']
 	avg99 = OUTPUT['avg99']
-	#print(avg99)
-	#data1 = "-0.054,-0.054,-0.052,-0.047"
-	#print(dates)
-	my_list = [[1,2,3],[1,2,3],[1,2,3],[1,2,3],[1,2,3]]
+	resultlist =OUTPUT['resultlist']
+	global Resource
 	print(ONLINE_MODE)
 	return doRender('result.htm',
 		{'note': ONLINE_MODE+" MODE",
@@ -280,7 +346,8 @@ def RiskCalc():
 		 'Dates' : dates,
 		 'avg95' : avg95,
 		 'avg99' : avg99,
-		 'my_list' : my_list
+		 'resultlist' : resultlist,
+		 'Resource' : Resource
 		})
 
 @app.route('/random', methods=['POST'])
@@ -325,7 +392,6 @@ def s3listbuckets():
 @app.route('/<path:path>')
 def mainPage(path):
 	update_data()
-
 	return doRender(path)
 @app.errorhandler(500)
 

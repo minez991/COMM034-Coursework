@@ -1,15 +1,19 @@
 <div id="down">
-		<h3>Numbers of MPs in Parliament :&nbsp;</h3>
-		<form id="stats" method="post" action="/calculate">
-			<h4>Scaleable Services(S): <input type="text" name="Scale" /><br/></h4>
-			<h4>Number of resources(R): <input type="text" name="Resource"
- /><br/></h4>
+		<h3>Select warm up details :&nbsp;</h3>
+		<form id="stats" method="post" action="/warmup">
+			<h4>Scaleable Services(S): <select name="Scale">
+				<option value="Lambda">Lambda</option>
+				<option value="EC2">EC2</option>
+				</select>
+			</h4>
+			<h4>
+				Number of resources(R): <input type="text" name="Resource" /><br/>
+			</h4>
 
-			<h4><input type="submit" name="init" value="Create Instance" 
-/>
+			<h4><input type="submit" name="init" value="Create Instance" />
+
 			<input type="submit" name='cancel' value="Cancel"
-			onclick="window.location='/'; return false;" /><br/></h4
->
+			onclick="window.location='/'; return false;" /><br/></h4>
 		</form>
 
 

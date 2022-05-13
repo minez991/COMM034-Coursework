@@ -27,3 +27,18 @@ f = open('data_out.json')
 js = json.load(f)
 print(type(js['var95'][0]))
 
+
+
+
+list1 = [1, 2, 3]
+list2 = [4, 5, 6]
+
+# `zipped_lists` contains pairs of items from both lists.
+# Create a list with the sum of each pair.
+sum = [x + y for (x, y) in zip(list1, list2)] 
+
+print(sum)
+# [5, 7, 9]
+
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
