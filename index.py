@@ -15,6 +15,7 @@ import json
 from flask import Flask, request, render_template
 import time
 from datetime import datetime
+import urllib.parse
 
 app = Flask(__name__)
 
@@ -36,7 +37,8 @@ Lambda_client = boto3.client('lambda', region_name='us-east-1')
 
 ### AWS Setup
 AWS_S3_BUCKET = 's3://stonkbucket'
-
+#EC2_BASE = "ec2-18-215-145-142.compute-1.amazonaws.com"
+EC2_BASE = "ec2-3-88-131-194.compute-1.amazonaws.com"
 def random_stop():
 	Randomtime = random.randrange(0,20) / 200
 	time.sleep(Randomtime)
@@ -150,8 +152,6 @@ def AskLambda(id,js):
 #Local Test function for front end of the webpage.
 def doMonty_lambda(data,minhistory = 101,shots= 80,BuyorSellOption="Buy",ONLINE_MODE = False):
 	import http.client
-	minhistory = 101
-	shots =80
 
 	shots=int(shots)
 	mean = []
@@ -206,7 +206,7 @@ def doMonty_lambda(data,minhistory = 101,shots= 80,BuyorSellOption="Buy",ONLINE_
 
 		Var95_Buffer = []
 		Var99_Buffer = []
-
+		
 		for result in res_json_table:
 			Var95_Buffer.append(result['var95'])
 			Var99_Buffer.append(result['var99'])
@@ -219,7 +219,8 @@ def doMonty_lambda(data,minhistory = 101,shots= 80,BuyorSellOption="Buy",ONLINE_
 
 		res_json ={
 			'var95' : var95_mean.tolist(),
-			'var99' : var99_mean.tolist()
+			'var99' : var99_mean.tolist(),
+			'SHOT' : shots
 		}
 
 		elapsed = time.time() - t
@@ -235,6 +236,9 @@ def doMonty_lambda(data,minhistory = 101,shots= 80,BuyorSellOption="Buy",ONLINE_
 	avg95 = [avg95] * len(res_json['var95'])
 	avg99 = [avg99] * len(res_json['var95'])
 	
+	#print(res_json)
+	Server_shots = res_json['SHOT']
+
 	#Formatting result table
 	resultlist= []
 	for i in range(0,len(avg95)):	
@@ -247,9 +251,89 @@ def doMonty_lambda(data,minhistory = 101,shots= 80,BuyorSellOption="Buy",ONLINE_
 		'avg95' : floatListToString(avg95),
 		'avg99' : floatListToString(avg99),
 		'resultlist' : resultlist,
-		'RequestTime' : elapsed
+		'RequestTime' : elapsed,
+		'Server_shots' : Server_shots
 		}
 
+	return OutputTuple
+
+def doMonty_EC2(data,minhistory = 101,shots= 80,BuyorSellOption="Buy",ONLINE_MODE = False):
+	import http.client
+
+	shots=int(shots)
+	mean = []
+	std = []
+	dates = []
+	#Select Buy or sell table
+	if BuyorSellOption == "Buy":
+		print("Client wants to buy")
+		#calculate all data to find the mean and std of data
+		for i in range(minhistory, len(data)): 
+			if data.Buy[i]==1: # if we were only interested in Buy signals
+					mean.append(data.Close[i-minhistory:i].pct_change(1).mean())
+					std.append(data.Close[i-minhistory:i].pct_change(1).std())
+					date = data.index[i].date()
+					date = date.strftime("%Y-%m-%d")
+					dates.append(date)
+
+	elif BuyorSellOption == "Sell":
+		print("Client wants to Sell")
+		for i in range(minhistory, len(data)): 
+			if data.Sell[i]==1: # if we were only interested in Buy signals
+					mean.append(data.Close[i-minhistory:i].pct_change(1).mean())
+					std.append(data.Close[i-minhistory:i].pct_change(1).std())
+					date = data.index[i].date()
+					date = date.strftime("%Y-%m-%d")
+					dates.append(date)
+
+	
+	elapsed = 0
+
+	#Query AWS function for result
+	if ONLINE_MODE:
+			#AWS package to be send			
+		js = {
+			'mean' : mean,
+			'std' : std,
+			'shots' : shots,
+			'poke' : "no"
+		}
+		js2 = {"js" : json.dumps(js)}
+		js = urllib.parse.urlencode(js2)
+		c = http.client.HTTPConnection(EC2_BASE, timeout = 120)
+		c.request("POST", "/CalcVar.py",js)
+		response = c.getresponse()
+		data = response.read().decode('utf-8')
+		res_json = json.loads(data)
+
+	else:
+		#Using demo data
+		f = open('data_out.json')
+		res_json = json.load(f)
+
+	avg95 = Average(res_json['var95'])
+	avg99 = Average(res_json['var99'])
+	avg95 = [avg95] * len(res_json['var95'])
+	avg99 = [avg99] * len(res_json['var95'])
+	
+
+	res_json['shots'] = shots
+	Server_shots = res_json['shots']
+	#Formatting result table
+	resultlist= []
+	for i in range(0,len(avg95)):	
+		resultlist.append( [ dates[i],round(res_json['var95'][i],4), round(res_json['var99'][i],3) ])
+
+	OutputTuple = {
+		'var95' : floatListToString(res_json['var95']),
+		'var99' : floatListToString(res_json['var99']),
+		'dates' : dates,
+		'avg95' : floatListToString(avg95),
+		'avg99' : floatListToString(avg99),
+		'resultlist' : resultlist,
+		'RequestTime' : elapsed,
+		'Server_shots' :Server_shots
+		}
 	return OutputTuple
 
 def create_EC2_resources(id):
@@ -304,10 +388,13 @@ def risk():
 @app.route('/RiskCalc', methods=['POST'])
 def RiskCalc():
 	update_data()
-	LengthOfPriceHistory = request.form.get('H')
-	NumberofDatapoints = request.form.get('D')
+	LengthOfPriceHistory = int(request.form.get('H'))
+	
+	NumberofDatapoints = int(request.form.get('D'))
 	BuyOrSell = request.form.get('T')
 	ONLINE_MODE = request.form.get('ONOFF')
+
+	
 
 	print(str(BuyOrSell))
 	if LengthOfPriceHistory == '' or NumberofDatapoints == '' or BuyOrSell == '':
@@ -326,9 +413,14 @@ def RiskCalc():
 		print("OFFLINE MODE")
 		ONLINE_FLAG=False
 	
+	if Scale_choice == "Lambda":
+		OUTPUT = doMonty_lambda(data,LengthOfPriceHistory,NumberofDatapoints,BuyOrSell,ONLINE_FLAG)
+	elif Scale_choice == "EC2":
+		print("===============================")
+		print("=             EC2             =")
+		print("===============================")
+		OUTPUT = doMonty_EC2(data,LengthOfPriceHistory,NumberofDatapoints,BuyOrSell,ONLINE_FLAG)
 
-	OUTPUT = doMonty_lambda(data,LengthOfPriceHistory,NumberofDatapoints,BuyOrSell,ONLINE_FLAG)
-	
 	data1 = OUTPUT['var95']
 	data2 = OUTPUT['var99']
 	dates = OUTPUT['dates']
@@ -336,6 +428,8 @@ def RiskCalc():
 	avg95 = OUTPUT['avg95']
 	avg99 = OUTPUT['avg99']
 	resultlist =OUTPUT['resultlist']
+	Server_shots = OUTPUT['Server_shots']
+
 	global Resource
 	print(ONLINE_MODE)
 	return doRender('result.htm',
@@ -347,7 +441,8 @@ def RiskCalc():
 		 'avg95' : avg95,
 		 'avg99' : avg99,
 		 'resultlist' : resultlist,
-		 'Resource' : Resource
+		 'Resource' : Resource,
+		 'shots' : Server_shots
 		})
 
 @app.route('/random', methods=['POST'])

@@ -30,15 +30,87 @@ print(type(js['var95'][0]))
 
 
 
-list1 = [1, 2, 3]
-list2 = [4, 5, 6]
 
-# `zipped_lists` contains pairs of items from both lists.
-# Create a list with the sum of each pair.
-sum = [x + y for (x, y) in zip(list1, list2)] 
+js = {
+'mean' : 0,
+'std' : 0,
+'shots' : 0
+}
+'''
+js = json.dumps(js)
+import http.client
+c = http.client.HTTPConnection("ec2-50-19-178-46.compute-1.amazonaws.com", timeout = 120)
+c.request.("POST", "/jsontest.py",params=js)
+response = c.getresponse()
+data = response.read().decode('utf-8')
 
-print(sum)
-# [5, 7, 9]
+json2 = json.loads(data)
+print(json2['mean'])
 
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+'''
+
+js = { 
+    "mean": [
+        0.02,
+        0.03
+    ],
+    "std": [
+        0.03,
+        0.04
+    ],
+    "shots": 80,
+    }
+print(json.dumps(js))
+print(json.dumps(js).replace("\"", "\\\""))
+
+'''
+import http.client
+import requests
+import urllib.parse
+f = open('data.json')
+js = json.load(f)
+js2 = {"js" : json.dumps(js)}
+#js = json.dumps(js)
+js = urllib.parse.urlencode(js2)
+c = http.client.HTTPConnection("ec2-50-19-178-46.compute-1.amazonaws.com", timeout = 120)
+c.request("POST", "/CalcVar.py",js)
+#c.request("POST", "/inputjson.py",js)
+response = c.getresponse()
+data = response.read().decode('utf-8')
+
+data = json.loads(data)
+
+print(data['var95'])
+
+'''
+
+
+
+import os
+os.environ['AWS_SHARED_CREDENTIALS_FILE']='./static/cred' 
+# Above line needs to be here before boto3 to ensure cred file is read
+# from the right place
+import boto3
+# Set the user-data we need – use your endpoint
+user_data = """#!/bin/bash
+wget https://black-machine-340614.ew.r.appspot.com/cacheavoid/setup.sh
+bash setup.sh
+"""
+ec2 = boto3.resource('ec2', region_name='us-east-1')
+instances = ec2.create_instances(
+ ImageId = 'ami-0c4f7023847b90238', # ubuntu 20.04
+ MinCount = 1, 
+ MaxCount = 1, 
+ InstanceType = 't2.micro', 
+ KeyName = 'CCW_KEY', # Make sure you have the named us-east-1kp
+ SecurityGroups=['SSH'], # Make sure you have the named SSH
+ BlockDeviceMappings = # extra disk
+ [ {'DeviceName' : '/dev/sdf', 'Ebs' : { 'VolumeSize' : 10 } } ],
+ UserData=user_data # and user-data
+ )
+# Wait for AWS to report instance(s) ready. 
+for i in instances:
+ i.wait_until_running()
+ # Reload the instance attributes
+ i.load()
+ print(i.public_dns_name) # ec2 com address
