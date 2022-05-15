@@ -1,0 +1,22 @@
+{% extends "_base.htm" %}
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.6.2/jquery.min.js"></script>
+{% block title %}
+	Audit Page
+   
+{% endblock %}
+
+
+
+{% block pageblock %}
+	<div class="contrainer"></div>
+	<div id="up">
+		<h1>Audit Page<br/><br/></h1>
+        <input type="submit" name='Soft Reset' value="Cancel"
+        onclick="window.location='/'; return false;" /><br/></h4>
+
+
+		<h3><a href="index.htm"> Home page  </a> | <a href="risk"> Risk page  </a></h3>
+	</div>
+
+    {{data | safe}}
+{% endblock %}

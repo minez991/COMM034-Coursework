@@ -1,5 +1,5 @@
 <div id="down">
-		<h3>Select warm up details :&nbsp;</h3>
+		<h3>Select Services and Number of Services you want to use :&nbsp;</h3>
 		<form id="stats" method="post" action="/warmup">
 			<h4>Scaleable Services(S): <select name="Scale">
 				<option value="Lambda">Lambda</option>
@@ -15,19 +15,6 @@
 			<input type="submit" name='cancel' value="Cancel"
 			onclick="window.location='/'; return false;" /><br/></h4>
 		</form>
-
-
-
-		<div class="dropdown">
-			<button onclick="myFunction()" class="dropbtn">Dropdown</button>
-			<div id="myDropdown" class="dropdown-content">
-			  <a href="#">Link 1</a>
-			  <a href="#">Link 2</a>
-			  <a href="#">Link 3</a>
-			</div>
-		  </div>
-
-
 		  
 		{% if note %}
 		<h3 style="color: #11FFFF">

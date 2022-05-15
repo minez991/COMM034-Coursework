@@ -1,6 +1,10 @@
 import time
 import http.client
 from concurrent.futures import ThreadPoolExecutor
+import json
+import os
+os.environ['AWS_SHARED_CREDENTIALS_FILE']='./static/cred'
+
 # creates a list of values as long as the number of things we want
 # in parallel so we could associate an ID to each. More parallelism here.
 parallel = 20
@@ -22,10 +26,6 @@ def getpages():
     return results
 
 
-import json
-f = open('data_out.json')
-js = json.load(f)
-print(type(js['var95'][0]))
 
 
 
@@ -85,7 +85,7 @@ print(data['var95'])
 '''
 
 
-
+'''
 import os
 os.environ['AWS_SHARED_CREDENTIALS_FILE']='./static/cred' 
 # Above line needs to be here before boto3 to ensure cred file is read
@@ -114,3 +114,98 @@ for i in instances:
  # Reload the instance attributes
  i.load()
  print(i.public_dns_name) # ec2 com address
+
+import os
+os.environ['AWS_SHARED_CREDENTIALS_FILE']='./static/cred'
+import boto3
+ec2 = boto3.resource('ec2', region_name='us-east-1')
+
+
+instances = ec2.instances.filter(
+        Filters=[{'Name': 'instance-state-name', 'Values': ['running']}])
+
+mylist = [instance for instance in instances]
+print(len(mylist))
+
+for instance in instances:
+    print(
+        "Id: {0}\nPlatform: {1}\nType: {2}\nPublic IPv4: {3}\nAMI: {4}\nState: {5}\n".format(
+        instance.id, instance.platform, instance.instance_type, instance.public_ip_address, instance.image.id, instance.state
+        )
+    )
+
+    print(type(instance.public_dns_name))
+'''
+
+import pandas as pd
+from pandas_datareader import data as pdr
+import boto3
+js_base =  []
+
+js2 = {
+		'Select' : "EC2",
+	"Resource" : 2,
+	"LengthOfPriceHistory" : 101,
+	"NumberOfData" : 80,
+	"BuyOrSell" : "Buy", 
+	"Average95" : -0.05,
+	"Average99" : -0.10,
+	"Time for Audit" : 0.6
+		}
+
+
+js = {
+		'Select' : "EC2",
+	"Resource" : 4,
+	"LengthOfPriceHistory" : 101,
+	"NumberOfData" : 80,
+	"BuyOrSell" : "Buy", 
+	"Average95" : -0.05,
+	"Average99" : -0.10,
+	"Time for Audit" : 0.6
+		}
+
+
+#### Clear Audit Log ####
+'''
+js = json.dumps(js)
+js = json.loads(js)
+
+
+js_base = json.dumps(js_base)
+js_base =json.loads(js_base)
+
+s3 = boto3.resource('s3')
+s3object = s3.Object('stonkbucket', 'audit.json')
+
+
+filecontent = s3object.get()['Body'].read().decode('utf-8')
+print(filecontent)
+s3object.put(
+    Body=(bytes(json.dumps(js_base).encode('UTF-8')))
+)
+
+filecontent = s3object.get()['Body'].read().decode('utf-8')
+print(filecontent)
+
+print(time.time())
+'''
+
+### Terminate EC2 ###
+
+ec2 = boto3.resource('ec2', region_name='us-east-1')
+
+
+instances = ec2.instances.all()
+
+mylist = [instance for instance in instances]
+print(len(mylist))
+
+for instance in instances:
+    print(
+        "Id: {0}\nPlatform: {1}\nType: {2}\nPublic IPv4: {3}\nAMI: {4}\nState: {5}\n".format(
+        instance.id, instance.platform, instance.instance_type, instance.public_ip_address, instance.image.id, instance.state
+        )
+    )
+    print(instance.terminate())
+

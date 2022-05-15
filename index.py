@@ -16,33 +16,100 @@ from flask import Flask, request, render_template
 import time
 from datetime import datetime
 import urllib.parse
+import http.client
+import boto3
 
 app = Flask(__name__)
 
-#TODO  LIST
-#PARALLELisation of lambda
-#EC2 Creation maybe use lamb server? 
-#S3
-#Result Page and audit page
-
-# Some Default value for global variable
-Resource = 4
-Scale_choice = "Lambda"
-
-
 os.environ['AWS_SHARED_CREDENTIALS_FILE']='./static/cred'
-import boto3
 
+#########################################################################    
+# 					 AWS Related Setting and functions      			#
+#########################################################################
 Lambda_client = boto3.client('lambda', region_name='us-east-1')
 
-### AWS Setup
 AWS_S3_BUCKET = 's3://stonkbucket'
-#EC2_BASE = "ec2-18-215-145-142.compute-1.amazonaws.com"
-EC2_BASE = "ec2-3-88-131-194.compute-1.amazonaws.com"
+def PingLambda(id):
+	#Quick helper to make the contrainer warmed up
+	random_stop()
+	js = {
+	'mean' : 0,
+	'std' : 0,
+	'shots' : 0,
+	'poke' : "beep"
+	}
+	js = json.dumps(js)
+
+	t = time.time()
+	
+	response = Lambda_client.invoke(
+	# use your own ARN below
+	FunctionName='arn:aws:lambda:us-east-1:564060094405:function:ReturnVarAvg',
+	InvocationType='RequestResponse',
+	LogType='None',
+	Payload=js
+	)
+	# Ways of working with the response
+	r=response['Payload'].read()
+	res_json = json.loads(r) # sometimes, it is necessary to use .decode("utf-8"))
+	elapsed = time.time() - t
+	#if res_json == "bop":
+		#print("\n Pinged \n")
+	#print('Elapsed: %s' , elapsed)
+	return str(id) +" : " +res_json
+
+#Creating EC resources and run a user defined scripts
+def create_EC2_resources(id):
+	user_data = """#!/bin/bash
+wget https://black-machine-340614.ew.r.appspot.com/cacheavoid/setup.sh
+bash setup.sh
+"""
+	ec2 = boto3.resource('ec2', region_name='us-east-1')
+	instances = ec2.create_instances(
+	ImageId = 'ami-0c4f7023847b90238', # ubuntu 20.04
+	MinCount = 1, 
+	MaxCount = 1, 
+	InstanceType = 't2.micro', 
+	KeyName = 'CCW_KEY', # Make sure you have the named us-east-1kp
+	SecurityGroups=['SSH'], # Make sure you have the named SSH
+	BlockDeviceMappings = # extra disk
+	[ {'DeviceName' : '/dev/sdf', 'Ebs' : { 'VolumeSize' : 10 } } ],
+	UserData=user_data # and user-data
+	)
+	for i in instances:
+		i.wait_until_running()
+		# Reload the instance attributes
+		i.load()
+
+	# Wait for AWS to report instance(s) ready. 
+	return i
+
+#Terminate ALL EC2 Servers
+def Terminate_EC2():
+	ec2 = boto3.resource('ec2', region_name='us-east-1')
+
+
+	instances = ec2.instances.all()
+
+	mylist = [instance for instance in instances]
+	print(len(mylist))
+
+	for instance in instances:
+		print(instance.terminate())
+	return "success"
+	
+
+
+#########################################################################    
+# 					 		Helper Functions			      			#
+#########################################################################
+
+#Introduce some ramdom stop when sending request to Lambda function
 def random_stop():
 	Randomtime = random.randrange(0,20) / 200
 	time.sleep(Randomtime)
 
+#Update the data grabbed from yahoo
 def update_data():
 	print("Data Updated")
 	# Code from the python script provided in coursework document, get data here
@@ -90,35 +157,7 @@ def update_data():
 		if data.High[i] > data.Open[i] and data.High[i]-data.Open[i] > realbody and data.Open[i] > data.Close[i] and data.Close[i] >= data.Low[i] and data.Close[i] <= data.Low[i]+bodyprojection:
 			data.at[data.index[i], 'Sell'] = 1
 
-def PingLambda(id):
-	#Quick helper to make the contrainer warmed up
-	random_stop()
-	js = {
-	'mean' : 0,
-	'std' : 0,
-	'shots' : 0,
-	'poke' : "beep"
-	}
-	js = json.dumps(js)
-
-	t = time.time()
-	
-	response = Lambda_client.invoke(
-	# use your own ARN below
-	FunctionName='arn:aws:lambda:us-east-1:564060094405:function:ReturnVarAvg',
-	InvocationType='RequestResponse',
-	LogType='None',
-	Payload=js
-	)
-	# Ways of working with the response
-	r=response['Payload'].read()
-	res_json = json.loads(r) # sometimes, it is necessary to use .decode("utf-8"))
-	elapsed = time.time() - t
-	#if res_json == "bop":
-		#print("\n Pinged \n")
-	#print('Elapsed: %s' , elapsed)
-	return str(id) +" : " +res_json
-
+#"Helper function: Changing a list of floats to single string
 def floatListToString(floatList):
 	OutputString = ''
 	for num in floatList[:-1]:
@@ -126,15 +165,26 @@ def floatListToString(floatList):
 	OutputString = OutputString + str(floatList[-1])
 	return OutputString
 
+#Averageing a list of numbers
 def Average(lst):
     return sum(lst) / len(lst)
 
+#Render webpage
 def doRender(tname, values={}):
 	if not (os.path.isfile( os.path.join(os.getcwd(), 'templates/'+tname)) ): #No such file
 		print("No File")
 		return render_template('index.htm')
 	return render_template(tname, **values)
 
+#########################################################################    
+# 					 		Running Functions			      		#
+#########################################################################
+
+######################################################################
+#Calculate resutls using lambda functions							 #
+#Return: var95: List of risk at variance at 95% for each data point  #
+#		 var99  List of risk at variance at 99% for each data point  #
+######################################################################
 def AskLambda(id,js):
 	print("Lambda #"+str(id)+": Making enquires")
 	response = Lambda_client.invoke(
@@ -147,9 +197,25 @@ def AskLambda(id,js):
 	r=response['Payload'].read()
 	res_json = json.loads(r) # sometimes, it is necessary to use .decode("utf-8"))
 	return res_json
-	
 
-#Local Test function for front end of the webpage.
+
+######################################################################
+#Calculate resutls using EC2 resources								 #
+#Return: var95: List of risk at variance at 95% for each data point  #
+#		 var99  List of risk at variance at 99% for each data point  #
+######################################################################
+def AskEC2(id,url,js):
+	#Send a HTTP requst using urllib to the ec2 servers
+	js = urllib.parse.urlencode(js)
+	c = http.client.HTTPConnection(url, timeout = 120)
+	c.request("POST", "/CalcVar.py",js)
+	response = c.getresponse()
+	data = response.read().decode('utf-8')
+	res_json = json.loads(data)
+	return res_json
+
+
+#Function for invoking Monte-Carlo Risk calculation using Lambda functions
 def doMonty_lambda(data,minhistory = 101,shots= 80,BuyorSellOption="Buy",ONLINE_MODE = False):
 	import http.client
 
@@ -160,7 +226,6 @@ def doMonty_lambda(data,minhistory = 101,shots= 80,BuyorSellOption="Buy",ONLINE_
 	#Select Buy or sell table
 	if BuyorSellOption == "Buy":
 		print("Client wants to buy")
-		#calculate all data to find the mean and std of data
 		for i in range(minhistory, len(data)): 
 			if data.Buy[i]==1: # if we were only interested in Buy signals
 					mean.append(data.Close[i-minhistory:i].pct_change(1).mean())
@@ -182,9 +247,8 @@ def doMonty_lambda(data,minhistory = 101,shots= 80,BuyorSellOption="Buy",ONLINE_
 	
 	elapsed = 0
 
-	#Query AWS function for result
 	if ONLINE_MODE:
-			#AWS package to be send			
+		# Create JSON to Lambda Functions	
 		js = {
 			'mean' : mean,
 			'std' : std,
@@ -195,27 +259,30 @@ def doMonty_lambda(data,minhistory = 101,shots= 80,BuyorSellOption="Buy",ONLINE_
 
 		t = time.time()
 		
-		
+		# Setup arrays for ThreadPoolExecutor
 		global Resource
 		js = [js] * Resource
 		runs=[value for value in range(Resource)]
 
+		#MultiThread to request for results
 		print("Parallelising for " + str(Resource) + " Resources")
 		with ThreadPoolExecutor(max_workers=Resource) as executor:
 			res_json_table =  executor.map(AskLambda,runs,js)
 
+
 		Var95_Buffer = []
 		Var99_Buffer = []
 		
+		#Loading result obtained from different lambda funciton
 		for result in res_json_table:
 			Var95_Buffer.append(result['var95'])
 			Var99_Buffer.append(result['var99'])
 
+		#Data Processing to find the mean value of var95 and var99 for each signal 
 		var95 = pd.DataFrame(Var95_Buffer)
 		var95_mean = var95.mean(axis=0)
 		var99 = pd.DataFrame(Var99_Buffer)
 		var99_mean = var99.mean(axis=0)
-		print(var95_mean.tolist())
 
 		res_json ={
 			'var95' : var95_mean.tolist(),
@@ -230,13 +297,15 @@ def doMonty_lambda(data,minhistory = 101,shots= 80,BuyorSellOption="Buy",ONLINE_
 		#Using demo data
 		f = open('data_out.json')
 		res_json = json.load(f)
+		res_json['SHOT'] = shots
 
+
+	# Find the average for var95 and 99.
 	avg95 = Average(res_json['var95'])
 	avg99 = Average(res_json['var99'])
 	avg95 = [avg95] * len(res_json['var95'])
 	avg99 = [avg99] * len(res_json['var95'])
-	
-	#print(res_json)
+	print(res_json)
 	Server_shots = res_json['SHOT']
 
 	#Formatting result table
@@ -257,8 +326,8 @@ def doMonty_lambda(data,minhistory = 101,shots= 80,BuyorSellOption="Buy",ONLINE_
 
 	return OutputTuple
 
+#Function for invoking Monte-Carlo Risk calculation using EC2 resources
 def doMonty_EC2(data,minhistory = 101,shots= 80,BuyorSellOption="Buy",ONLINE_MODE = False):
-	import http.client
 
 	shots=int(shots)
 	mean = []
@@ -287,30 +356,75 @@ def doMonty_EC2(data,minhistory = 101,shots= 80,BuyorSellOption="Buy",ONLINE_MOD
 					dates.append(date)
 
 	
-	elapsed = 0
 
-	#Query AWS function for result
+
 	if ONLINE_MODE:
-			#AWS package to be send			
+			#JSON Data sent to EC2	
 		js = {
 			'mean' : mean,
 			'std' : std,
 			'shots' : shots,
-			'poke' : "no"
 		}
 		js2 = {"js" : json.dumps(js)}
-		js = urllib.parse.urlencode(js2)
-		c = http.client.HTTPConnection(EC2_BASE, timeout = 120)
-		c.request("POST", "/CalcVar.py",js)
-		response = c.getresponse()
-		data = response.read().decode('utf-8')
-		res_json = json.loads(data)
 
+		t = time.time()
+
+		#Find and count all running EC2 instances
+		ec2 = boto3.resource('ec2', region_name='us-east-1')
+		instances = ec2.instances.filter(
+        Filters=[{'Name': 'instance-state-name', 'Values': ['running']}])
+		mylist = [instance for instance in instances]
+		EC2_count = len(mylist)
+		
+		#Check if the EC2 count equals or bigger than the rersources request 
+		global Resource
+		if EC2_count < Resource:
+			raise ValueError('ERROR NOT enough EC2 running for the required amount')
+
+		#create a url list for execute
+		url_list = []
+		for instance in instances:
+			url_list.append(instance.public_dns_name)
+		
+		#Create query list for execute
+		js = [js2] * Resource
+		runs=[value for value in range(Resource)]
+
+		# Parallel sending request to a apache2 server running on EC2
+		print("Parallelising for " + str(Resource) + " EC2 Resources")
+		with ThreadPoolExecutor(max_workers=Resource) as executor:
+			res_json_table =  executor.map(AskEC2,runs,url_list,js)
+		
+
+		
+		Var95_Buffer = []
+		Var99_Buffer = []
+		
+		for result in res_json_table:
+			Var95_Buffer.append(result['var95'])
+			Var99_Buffer.append(result['var99'])
+		
+		#Data processing using Panda To find the mean of var95 and var99 for each signal over different EC2 results
+		var95 = pd.DataFrame(Var95_Buffer)
+		var95_mean = var95.mean(axis=0)
+		var99 = pd.DataFrame(Var99_Buffer)
+		var99_mean = var99.mean(axis=0)
+		
+		#Output Json 
+		res_json ={
+			'var95' : var95_mean.tolist(),
+			'var99' : var99_mean.tolist(),
+			'SHOT' : shots
+		}
+		elapsed = time.time() - t
+		print('Elapsed: ' , elapsed)
+		
 	else:
-		#Using demo data
+		#Using local demo data
 		f = open('data_out.json')
 		res_json = json.load(f)
-
+	
+	#Find Average for var95 and 99
 	avg95 = Average(res_json['var95'])
 	avg99 = Average(res_json['var99'])
 	avg95 = [avg95] * len(res_json['var95'])
@@ -336,11 +450,24 @@ def doMonty_EC2(data,minhistory = 101,shots= 80,BuyorSellOption="Buy",ONLINE_MOD
 		}
 	return OutputTuple
 
-def create_EC2_resources(id):
-	return "EC2 Creation ID: " + str(id)
+
+def clear_audit_log():
+	
+	s3 = boto3.resource('s3')
+	s3object = s3.Object('stonkbucket', 'audit.json')
 
 
-#Abstraction of code to create amazon_scaleable instances
+	filecontent = s3object.get()['Body'].read().decode('utf-8')
+	print(filecontent)
+	s3object.put(
+		Body=(bytes(json.dumps(js_base).encode('UTF-8')))
+	)
+
+	filecontent = s3object.get()['Body'].read().decode('utf-8')
+	print(filecontent)
+	return "cleared"
+
+
 
 # Defines a POST supporting calculate route
 @app.route('/warmup', methods=['POST'])
@@ -350,11 +477,18 @@ def calculateHandler():
 		global Scale_choice
 		Scale_choice = request.form.get('Scale')
 		global Resource
-		Resource = int(request.form.get('Resource'))
-
-		runs=[value for value in range(0,int(Resource))] # Create 
-		print(runs)
+		Resource = request.form.get('Resource')
+		
+		if Scale_choice == '' or Resource =='':
+			
+			return doRender('index.htm',
+			{
+				'note' : "Please Input a valid number"
+			})
+		Resource = int(Resource)
 		if Scale_choice == "Lambda":
+			runs=[value for value in range(Resource)]
+
 			with ThreadPoolExecutor(max_workers=int(Resource)) as executor:
 				init_result = executor.map(PingLambda,runs)
 
@@ -362,29 +496,48 @@ def calculateHandler():
 				print(result)
 
 		elif Scale_choice == "EC2":
+			ec2 = boto3.resource('ec2', region_name='us-east-1')
 
-			with ThreadPoolExecutor(max_workers=Resource) as executor:
-				init_result = executor.map(create_EC2_resources,runs)
-			#TODO EC2 Creation
-			for result in init_result:
-				print(result)
+			#Request to see numbber of running instances to avoid creating too many instances
+			instances = ec2.instances.filter(
+			Filters=[{'Name': 'instance-state-name', 'Values': ['running']}])
+			mylist = [instance for instance in instances] 
+			RunningCount = len(mylist)
+			
+			#Create number of resource depends on the 
+			EC2tocreate = Resource - RunningCount
+			
+			#If we need more resouces
+			if EC2tocreate > 0:
 
-		return doRender('risk.htm')
+				runs=[value for value in range(0,int(EC2tocreate))] #Find the count for runs
+				print("Number of resources needs to be create = " + str(EC2tocreate))
+				with ThreadPoolExecutor(max_workers=EC2tocreate) as executor:
+					init_result = executor.map(create_EC2_resources,runs)
+				#TODO EC2 Creation
+				for result in init_result:
+					print(result)
+			else:
+				print("Enough EC2 running already")
+
+		return doRender('risk.htm',
+		{
+			'Resource' : Scale_choice
+		})
 
 
-
-@app.route('/table')
-def table():
-	return render_template('table.htm',len = len(Pokemons), Pokemons = Pokemons)
-
-
+#Show risk page
 @app.route('/risk')
 def risk():
 	print()
 	print("data Loaded")
+	global Scale_choice
 	Yesno = {}
-	return render_template('risk.htm')
+	return doRender('risk.htm',{
+		"Resource" : Scale_choice
+	})
 
+#Flask post to calculate risk
 @app.route('/RiskCalc', methods=['POST'])
 def RiskCalc():
 	update_data()
@@ -401,10 +554,6 @@ def RiskCalc():
 		return doRender('risk.htm',
 		{'note': 'Please Check input cannot be empty'})
 
-	if BuyOrSell == "Buy":
-		Selected_data = data.loc[data['Buy'] ==1]
-	elif BuyOrSell == "Sell":
-		Selected_data = data.loc[data['Sell'] ==1]
 	print("Riskcalc")
 	if ONLINE_MODE == "ONLINE":
 		print("ONLINE MODE")
@@ -414,13 +563,22 @@ def RiskCalc():
 		ONLINE_FLAG=False
 	
 	if Scale_choice == "Lambda":
+		print("===============================")
+		print("=          Lambda             =")
+		print("===============================")
+		t = time.time()
 		OUTPUT = doMonty_lambda(data,LengthOfPriceHistory,NumberofDatapoints,BuyOrSell,ONLINE_FLAG)
+		elapsedtime = time.time() - t
+
 	elif Scale_choice == "EC2":
 		print("===============================")
 		print("=             EC2             =")
 		print("===============================")
+		t = time.time()
 		OUTPUT = doMonty_EC2(data,LengthOfPriceHistory,NumberofDatapoints,BuyOrSell,ONLINE_FLAG)
+		elapsedtime = time.time() - t
 
+	#OUtput data format
 	data1 = OUTPUT['var95']
 	data2 = OUTPUT['var99']
 	dates = OUTPUT['dates']
@@ -430,7 +588,33 @@ def RiskCalc():
 	resultlist =OUTPUT['resultlist']
 	Server_shots = OUTPUT['Server_shots']
 
-	global Resource
+	
+	#### Logging for Audit Page  ######
+	audit_json = {
+		'Selection (S)' : Scale_choice,
+	"Resource (R) " : Resource,
+	"Length Of Price History (H)" : LengthOfPriceHistory,
+	"Number Of Data shots (D) " : NumberofDatapoints,
+	"Buy Or Sell" : BuyOrSell, 
+	"Average Var95" : float(avg95.split(',')[0]),
+	"Average Var99" : float(avg99.split(',')[0]),
+	"Time for Audit" : elapsedtime
+	}
+
+	
+	#Update Audit JSON 
+	s3 = boto3.resource('s3')
+	s3object = s3.Object('stonkbucket', 'audit.json')
+	filecontent = s3object.get()['Body'].read().decode('utf-8')
+
+	jsoncontent = json.loads(filecontent)
+	jsoncontent.append(audit_json) 
+
+	s3object.put(
+    Body=(bytes(json.dumps(jsoncontent).encode('UTF-8')))
+	)
+
+
 	print(ONLINE_MODE)
 	return doRender('result.htm',
 		{'note': ONLINE_MODE+" MODE",
@@ -445,20 +629,6 @@ def RiskCalc():
 		 'shots' : Server_shots
 		})
 
-@app.route('/random', methods=['POST'])
-def RandomHandler():
-	import http.client
-	if request.method == 'POST':
-		v = request.form.get('key1')
-		c = http.client.HTTPSConnection("24vn514n19.execute-api.us-east-1.amazonaws.com")
-		json= '{ "key1": "'+v+'"}'
-		c.request("POST", "/default/ReturnVarAvg", json)
-		response = c.getresponse()
-		decode_data = response.read().decode('utf-8')
-		print(decode_data)
-		return doRender( 'index.htm',
-			{'note': data})
-		
 
 @app.route('/cacheavoid/<name>')
 def cacheavoid(name):
@@ -470,15 +640,30 @@ def cacheavoid(name):
     f.close()
     return contents
 
-@app.route('/s3')
-def s3listbuckets():
-    os.environ['AWS_SHARED_CREDENTIALS_FILE']='./cred'
-    # Above line needs to be here before boto3 to ensure file is read
-    import boto3
+@app.route('/audit')
+def audit():
+	s3 = boto3.resource('s3')
+	s3object = s3.Object('stonkbucket', 'audit.json')
 
-    s3 = boto3.resource('s3')
-    bucketnames=[bucket.name for bucket in s3.buckets.all()]
-    return doRender('index.htm', {'note': ' '.join(bucketnames)})
+
+	filecontent = s3object.get()['Body'].read().decode('utf-8')
+	jsonconent = json.loads(filecontent)
+	df = pd.DataFrame(jsonconent)
+	print(df)
+	#print(jsonconent[0]['Select'])	
+
+	return doRender('audit.htm',{
+		'data' : df.to_html(classes="table table-bordered table-striped mb-0" , justify="center")
+	})
+
+
+@app.route('/terminateec2')
+def terminate_ec2():
+	Terminate_EC2()
+
+	return doRender('index.htm',{
+		'note' : "ALL EC2 Terminated"
+	})
 
 
 
@@ -487,6 +672,7 @@ def s3listbuckets():
 @app.route('/<path:path>')
 def mainPage(path):
 	update_data()
+
 	return doRender(path)
 @app.errorhandler(500)
 
